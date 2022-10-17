@@ -10,13 +10,15 @@ from scipy import sparse
 from math import sqrt
 
 from ..metrics import pairwise_distances_argmin
-from ..metrics.pairwise import euclidean_distances
+from ..metrics.pairwise import cosine_distances 
 from ..base import (
     TransformerMixin,
     ClusterMixin,
     BaseEstimator,
     _ClassNamePrefixFeaturesOutMixin,
 )
+
+from scipy.spatial.distance import cosine
 from ..utils.extmath import row_norms
 from ..utils._param_validation import Interval
 from ..utils.validation import check_is_fitted
@@ -82,9 +84,12 @@ def _split_node(node, threshold, branching_factor):
         if node.next_leaf_ is not None:
             node.next_leaf_.prev_leaf_ = new_node2
 
-    dist = euclidean_distances(
-        node.centroids_, Y_norm_squared=node.squared_norm_, squared=True
-    )
+#CHANGE
+    dist = cosine_distances(node.centroids_)
+    
+    # euclidean_distances(
+    #     node.centroids_, Y_norm_squared=node.squared_norm_, squared=True
+    # )
     n_clusters = dist.shape[0]
 
     farthest_idx = np.unravel_index(dist.argmax(), (n_clusters, n_clusters))
@@ -201,6 +206,8 @@ class _CFNode:
         branching_factor = self.branching_factor
         # We need to find the closest subcluster among all the
         # subclusters so that we can insert our new subcluster.
+        
+#CHANGE - taking dot product - instead stick with cos dist again?
         dist_matrix = np.dot(self.centroids_, subcluster.centroid_)
         dist_matrix *= -2.0
         dist_matrix += self.squared_norm_
@@ -315,6 +322,8 @@ class _CFSubcluster:
         self.linear_sum_ += subcluster.linear_sum_
         self.squared_sum_ += subcluster.squared_sum_
         self.centroid_ = self.linear_sum_ / self.n_samples_
+
+#CHANGE
         self.sq_norm_ = np.dot(self.centroid_, self.centroid_)
 
     def merge_subcluster(self, nominee_cluster, threshold):
@@ -335,6 +344,9 @@ class _CFSubcluster:
         #   r^2 = sum_i ||x_i||^2 / n - 2 < sum_i x_i / n, c> + n ||c||^2 / n
         # and therefore simplifies to:
         #   r^2 = sum_i ||x_i||^2 / n - ||c||^2
+
+
+#CHANGE
         sq_radius = new_ss / new_n - new_sq_norm
 
         if sq_radius <= threshold**2:
@@ -477,6 +489,7 @@ class Birch(
     >>> brc.predict(X)
     array([0, 0, 0, 1, 1, 1])
     """
+#will include changes in comments
 
     _parameter_constraints: dict = {
         "threshold": [Interval(Real, 0.0, None, closed="neither")],
@@ -484,6 +497,7 @@ class Birch(
         "n_clusters": [None, ClusterMixin, Interval(Integral, 1, None, closed="left")],
         "compute_labels": ["boolean"],
         "copy": ["boolean"],
+        "distance": ["Euclidean", "Cosine"]
     }
 
     def __init__(
@@ -494,6 +508,7 @@ class Birch(
         n_clusters=3,
         compute_labels=True,
         copy=True,
+        #distance="Euclidean",
     ):
         self.threshold = threshold
         self.branching_factor = branching_factor
@@ -519,7 +534,7 @@ class Birch(
             Fitted estimator.
         """
 
-        self._validate_params()
+        #self._validate_params()
 
         return self._fit(X, partial=False)
 
@@ -629,7 +644,7 @@ class Birch(
         self
             Fitted estimator.
         """
-        self._validate_params()
+        #self._validate_params()
 
         if X is None:
             # Perform just the final global clustering step.
@@ -699,7 +714,9 @@ class Birch(
         check_is_fitted(self)
         X = self._validate_data(X, accept_sparse="csr", reset=False)
         with config_context(assume_finite=True):
-            return euclidean_distances(X, self.subcluster_centers_)
+            #change to:
+            return cosine(X, self.subcluster_centers)
+            #return euclidean_distances(X, self.subcluster_centers_)
 
     def _global_clustering(self, X=None):
         """
@@ -712,7 +729,8 @@ class Birch(
         # Preprocessing for the global clustering.
         not_enough_centroids = False
         if isinstance(clusterer, Integral):
-            clusterer = AgglomerativeClustering(n_clusters=self.n_clusters)
+            #changed affinity to cosine
+            clusterer = AgglomerativeClustering(n_clusters=self.n_clusters, affinity="cosine")
             # There is no need to perform the global clustering step.
             if len(centroids) < self.n_clusters:
                 not_enough_centroids = True
